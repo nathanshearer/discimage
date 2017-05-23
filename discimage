@@ -1,39 +1,71 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-#----------------------------------------------------------------------------
-# DiscImage
-# Copyright (C) 2007 Nathan Shearer
-#
-# This program is free software; you can redistribute it and/or modify it
-# under the terms of the GNU General Public License version 2 as published by
-# the Free Software Foundation.
-#
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-# more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to:
-#   The Free Software Foundation Inc.
-#   51 Franklin Street
-#   Fifth Floor
-#   Boston, MA
-#   02110-1301
-#   USA
-
-COPYRIGHT="Copyright (C) 2010 Nathan Shearer"
-VERSION="1.0.0.0"
+NAME="DiscImage"
+CODENAME="discimage"
+COPYRIGHT="Copyright (C) 2007 Nathan Shearer"
+LICENSE="GNU General Public License 2.0"
+VERSION="2.0.0.0"
 
 # \brief Ensures dependencies are present
 function discimage_check_dependencies
 {
-	for TOOL in bar cdrdao dd eject grep md5sum /usr/sbin/parted sed toc2cue pure-sfv; do
+	for TOOL in cdrdao ddrescue md5sum toc2cue pure-sfv; do
 		if ! type $TOOL >/dev/null 2>/dev/null; then
 			printf "discimage: \"$TOOL\" is required for DiscImage to work correctly.\n"
 			exit
 		fi
 	done
+}
+
+# \brief Creates a cdrdao image (Mode 1 Raw) from a cdrom disc
+# \param $1 The source device
+# \param $2 The basename of the output image
+function discimage_cdrom_mode1raw
+{
+	local DEVICE="$1"
+	local BASENAME="$2"
+	echo 1 | cdrdao read-cd --device "$DEVICE" --driver generic-mmc:0x20000 --datafile "$BASENAME".bin --read-raw -v 2 "$BASENAME".toc 2>&1 | tee "$BASENAME.log"
+	toc2cue "$BASENAME.toc" "$BASENAME.cue"
+	md5sum "$BASENAME.bin" "$BASENAME.cue" "$BASENAME.toc" > "$BASENAME.md5"
+	pure-sfv -c -s "$BASENAME.sfv" -f "$BASENAME.bin" "$BASENAME.cue" "$BASENAME.toc"
+}
+
+# \brief Creates a cdrdao image (Mode 1 Raw with Subchannels) from a cdrom disc
+# \param $1 The source device
+# \param $2 The basename of the output image
+function discimage_cdrom_mode1rawsub
+{
+	local DEVICE="$1"
+	local BASENAME="$2"
+	echo 1 | cdrdao read-cd --device "$DEVICE" --driver generic-mmc:0x20000 --datafile "$BASENAME".bin --read-raw --read-subchan rw_raw -v 2 "$BASENAME".toc 2>&1 | tee "$BASENAME.log"
+	toc2cue "$BASENAME.toc" "$BASENAME.cue"
+	md5sum "$BASENAME.bin" "$BASENAME.cue" "$BASENAME.toc" > "$BASENAME.md5"
+	pure-sfv -c -s "$BASENAME.sfv" -f "$BASENAME.bin" "$BASENAME.cue" "$BASENAME.toc"
+}
+
+# \brief Creates an image from a dvdrom disc
+# \param $1 The source device
+# \param $2 The basename of the output image
+function discimage_dvdrom
+{
+	local DEVICE="$1"
+	local BASENAME="$2"
+	mplayer -dvd-device "$DEVICE" dvd:// -frames 64 -msglevel identify=6 1>/dev/null 2>/dev/null
+	ddrescue "$DEVICE" "$BASENAME.iso" "$BASENAME.log"
+	md5sum "$BASENAME.iso" > "$BASENAME.md5"
+	pure-sfv -c -s "$BASENAME.sfv" -f "$BASENAME.iso"
+}
+
+# \brief Creates an image from a floppy disc
+# \param $1 The source device
+# \param $2 The basename of the output image
+function discimage_floppy
+{
+	local DEVICE="$1"
+	local BASENAME="$2"
+	ddrescue "$DEVICE" "$BASENAME.bin" "$BASENAME.log"
+	md5sum "$BASENAME.bin" > "$BASENAME.md5"
+	pure-sfv -c -s "$BASENAME.sfv" -f "$BASENAME.bin"
 }
 
 # \brief Cleans up the environment and exits
@@ -56,51 +88,63 @@ function discimage_exit
 # \brief Displays the help and exits the program
 function discimage_help
 {
-	printf "DiscImage creates an image of CD/DVD/BD discs.\n\n"
-	printf "Usage:\n"
-	printf "  discimage [<device>] <basename>\n"
-	printf "Options:\n"
-	printf "  -h\n"
-	printf "    Display this help message and exit.\n"
-	printf "  -v\n"
-	printf "    Print the version and exit.\n"
-	printf "Examples:\n"
-	printf "  discimage image\n"
-	printf "  discimage /dev/dvd image\n"
-	exit
-}
-
-# \brief Ensures that there is a disc in the drive
-# \param $1 The device to load
-function discimage_load_tray
-{
-	DEVICE="$1"
-	if [ -b "$DEVICE" ]; then
-		eject -t "$DEVICE" 2>/dev/null
-		sleep 10
-		if ! dd if="$DEVICE" of=/dev/null bs=2048 count=1 2>/dev/null; then
-			while ! dd if="$DEVICE" of=/dev/null bs=2048 count=1 >/dev/null 2>/dev/null; do
-				printf "No medium found at \"$DEVICE\"...\n"
-				sleep 10
-			done
-			printf "\n"
-		fi
-	fi
-}
-
-# \brief Prints out the version and copyright and exits the program
-function discimage_version
-{
-	printf "DiscImage $VERSION $COPYRIGHT\n"
+	#     01234567890123456789012345678901234567890123456789012345678901234567890123456789
+	echo "Description:"
+	echo "  DiscImage creates an image of various disc formats."
+	echo
+	echo "Usage:"
+	echo "  discimage -i <device> -t <type> -o <basename>"
+	echo
+	echo "Options:"
+	echo "  -h"
+	echo "    Display this help message and exit."
+	echo "  -i /dev/sr0"
+	echo "    Input device."
+	echo "  -o basename"
+	echo "    Output basename."
+	echo "  -t type"
+	echo "    Specify the type of disc image to create. Supported types are:"
+	echo "      floppy"
+	echo "        An binary image with 512 byte sectors"
+	echo "      cdrom-mode1raw"
+	echo "        A cdrdao bin+cue+toc image."
+	echo "        2352 Byte CD-ROM Mode 1 Raw Sector Format:"
+	echo "          12 Bytes (Sync Pattern)"
+	echo "          3 Bytes (Address)"
+	echo "          1 Bytes (Mode, 0x01)"
+	echo "          2048 Bytes (Data)"
+	echo "          4 Bytes (Error Detection)"
+	echo "          8 Bytes (Reserved, 0x0000000000000000)"
+	echo "          276 Bytes (Error Correction)"
+	echo "      cdrom-mode1rawsub"
+	echo "        A cdrdao bin+cue+toc image."
+	echo "        2448 Byte CD-ROM Mode 1 Raw with Subchannels Sector Format:"
+	echo "          12 Bytes (Sync Pattern)"
+	echo "          3 Bytes (Address)"
+	echo "          1 Bytes (Mode, 0x01)"
+	echo "          2048 Bytes (Data)"
+	echo "          4 Bytes (Error Detection)"
+	echo "          8 Bytes (Reserved, 0x0000000000000000)"
+	echo "          276 Bytes (Error Correction)"
+	echo "          96 Bytes (Subcannels)"
+	echo "      dvdrom"
+	echo "        An iso image with 2048 byte sectors"
+	echo
+	echo "Examples:"
+	echo "  discimage -i /dev/sr0 -t cdrom-mode1rawsub -o disc1"
+	echo "  discimage -i /dev/sr0 -t dvdrom -o S1D1"
+	echo
+	echo "Version:"
+	echo "  $NAME $VERSION"
+	echo "  $COPYRIGHT"
+	echo "  Licensed under $LICENSE"
 	exit
 }
 
 #------------------------------------------------------------------------------
 # default configuration
 
-DEVICE=/dev/sr0
-filestat=false
-parted=/usr/sbin/parted
+INPUT=/dev/sr0
 
 #------------------------------------------------------------------------------
 # config files
@@ -117,38 +161,44 @@ fi
 
 if [ $# -eq 0 ]; then
 	discimage_help
-elif [ $# -eq 2 ]; then
-	DEVICE="$1"
-	shift
 fi
-BASENAME="$1"
+while [ $# -ne 0 ]; do
+	case "$1" in
+		"-h"|"--help")
+			discimage_help
+			exit
+			;;
+		"-i")
+			INPUT="$2"
+			shift 2
+			;;
+		"-o")
+			OUTPUT="$2"
+			shift 2
+			;;
+		"-t")
+			TYPE="$2"
+			shift 2
+			;;
+		*)
+			discimage_help
+			exit
+			;;
+	esac
+done
+
+#------------------------------------------------------------------------------
+# prepare environment
+
+discimage_check_dependencies
 
 #------------------------------------------------------------------------------
 # begin execution
 
-discimage_check_dependencies
-
-discimage_load_tray "$DEVICE"
-SIZE=`$parted -m ${DEVICE} unit b print 2>/dev/null | grep ${DEVICE} | cut -d : -f 2 | sed -r -e "s/([0-9]+)B/\\1/"`
-#SIZE=`/sbin/fdisk -lu "$DEVICE" 2>/dev/null | grep bytes | head -n 1 | sed -r -e "s/.+? ([0-9]+) bytes/\\1/"`
-# CD - 800MB
-if [ $SIZE -lt 838860800 ]; then
-	echo 1 | cdrdao read-cd --device "$DEVICE" --driver generic-mmc:0x20000 --datafile "$BASENAME".bin --read-raw --with-cddb -v 2 "$BASENAME".toc
-	toc2cue "$BASENAME.toc" "$BASENAME.cue"
-	md5sum "$BASENAME.bin" "$BASENAME.cue" "$BASENAME.toc" > "$BASENAME.md5"
-	pure-sfv -c -s "$BASENAME.sfv" -f "$BASENAME.bin" "$BASENAME.cue" "$BASENAME.toc"
-# DVD - 9GB
-elif [ $SIZE -lt 9663676416 ]; then
-	$filestat "$DEVICE" 1>/dev/null 2>/dev/null
-	mplayer -dvd-device "$DEVICE" dvd:// -frames 64 -msglevel identify=6 1>/dev/null 2>/dev/null
-	dd "if=$DEVICE" bs=2048 conv=noerror,sync 2>/dev/null | bar -s "$SIZE" -of "$BASENAME.iso" --no-summary 2>&1
-	md5sum "$BASENAME.iso" > "$BASENAME.md5"
-	pure-sfv -c -s "$BASENAME.sfv" -f "$BASENAME.iso"
-# BD - 50GB
-elif [ $SIZE -lt 53687091200 ]; then
-	discimage_exit 1 "BD-ROM images not implemented."
-else
-	discimage_exit 1 "Unknown media type."
-fi
-#eject "$DEVICE"
-discimage_exit
+case "$TYPE" in
+	"cdrom-mode1raw") discimage_cdrom_mode1raw "$INPUT" "$OUTPUT";;
+	"cdrom-mode1rawsub") discimage_cdrom_mode1rawsub "$INPUT" "$OUTPUT";;
+	"dvdrom") discimage_dvdrom "$INPUT" "$OUTPUT";;
+	"floppy") discimage_floppy "$INPUT" "$OUTPUT";;
+	*) echo "Unknown disc type: $TYPE";;
+esac
