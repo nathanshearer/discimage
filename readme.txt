@@ -1,17 +1,17 @@
 Description:
-  DiscImage creates an image of various disc formats.
+  Create an image of a removable disc.
 
 Usage:
-  discimage -i <device> -t <type> -o <basename>
+  discimage [options] -t <type> -o <basename>
 
 Options:
-  -h
+  -h, --help
     Display this help message and exit.
-  -i /dev/sr0
+  -i, --input /dev/sr0
     Input device.
-  -o basename
+  -o, --output basename
     Output basename.
-  -t type
+  -t, --type type
     Specify the type of disc image to create. Supported types are:
       floppy
         An binary image with 512 byte sectors

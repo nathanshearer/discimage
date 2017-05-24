@@ -7,11 +7,12 @@ LICENSE="GNU General Public License 2.0"
 VERSION="2.0.0.0"
 
 # \brief Ensures dependencies are present
+# \param $@ The dependencies to check for
 function discimage_check_dependencies
 {
-	for TOOL in cdrdao ddrescue md5sum toc2cue pure-sfv; do
-		if ! type $TOOL >/dev/null 2>/dev/null; then
-			printf "discimage: \"$TOOL\" is required for DiscImage to work correctly.\n"
+	for TOOL in "$@"; do
+		if ! type "$TOOL" >/dev/null 2>/dev/null; then
+			echo "$CODENAME: \"$TOOL\" is required for this application to work correctly." >&2
 			exit
 		fi
 	done
@@ -68,41 +69,24 @@ function discimage_floppy
 	pure-sfv -c -s "$BASENAME.sfv" -f "$BASENAME.bin"
 }
 
-# \brief Cleans up the environment and exits
-# \param $1 The exit code
-# \param #2 The exit message
-function discimage_exit
-{
-	local EXIT="$1"
-	local MESSAGE="$2"
-	if [ "$EXIT" = "" ]; then
-		EXIT=0
-	fi
-	case $EXIT in
-		0) exit;;
-		1) printf "discimage: $MESSAGE\n"; exit $EXIT;;
-		*) printf "\ndiscimage: discimage_exit: Unknown exit code \"$EXIT\".\n"; exit $EXIT;;
-	esac
-}
-
 # \brief Displays the help and exits the program
 function discimage_help
 {
 	#     01234567890123456789012345678901234567890123456789012345678901234567890123456789
 	echo "Description:"
-	echo "  DiscImage creates an image of various disc formats."
+	echo "  Create an image of a removable disc."
 	echo
 	echo "Usage:"
-	echo "  discimage -i <device> -t <type> -o <basename>"
+	echo "  $CODENAME [options] -t <type> -o <basename>"
 	echo
 	echo "Options:"
-	echo "  -h"
+	echo "  -h, --help"
 	echo "    Display this help message and exit."
-	echo "  -i /dev/sr0"
+	echo "  -i, --input /dev/sr0"
 	echo "    Input device."
-	echo "  -o basename"
+	echo "  -o, --output basename"
 	echo "    Output basename."
-	echo "  -t type"
+	echo "  -t, --type type"
 	echo "    Specify the type of disc image to create. Supported types are:"
 	echo "      floppy"
 	echo "        An binary image with 512 byte sectors"
@@ -131,14 +115,26 @@ function discimage_help
 	echo "        An iso image with 2048 byte sectors"
 	echo
 	echo "Examples:"
-	echo "  discimage -i /dev/sr0 -t cdrom-mode1rawsub -o disc1"
-	echo "  discimage -i /dev/sr0 -t dvdrom -o S1D1"
+	echo "  $CODENAME -i /dev/sr0 -t cdrom-mode1rawsub -o disc1"
+	echo "  $CODENAME -i /dev/sr0 -t dvdrom -o S1D1"
 	echo
 	echo "Version:"
 	echo "  $NAME $VERSION"
 	echo "  $COPYRIGHT"
 	echo "  Licensed under $LICENSE"
 	exit
+}
+
+# \brief The main function of this script
+function discimage_main
+{
+	case "$TYPE" in
+		"cdrom-mode1raw") discimage_cdrom_mode1raw "$INPUT" "$OUTPUT";;
+		"cdrom-mode1rawsub") discimage_cdrom_mode1rawsub "$INPUT" "$OUTPUT";;
+		"dvdrom") discimage_dvdrom "$INPUT" "$OUTPUT";;
+		"floppy") discimage_floppy "$INPUT" "$OUTPUT";;
+		*) echo "Unknown disc type: $TYPE";;
+	esac
 }
 
 #------------------------------------------------------------------------------
@@ -149,11 +145,11 @@ INPUT=/dev/sr0
 #------------------------------------------------------------------------------
 # config files
 
-if [ -r /etc/discimage/discimage.conf ]; then
-	. /etc/discimage/discimage.conf
+if [ -r /etc/$CODENAME/$CODENAME.conf ]; then
+	. /etc/$CODENAME/$CODENAME.conf
 fi
-if [ -r ~/.discimage.conf ]; then
-	. ~/.discimage.conf
+if [ -r ~/.$CODENAME.conf ]; then
+	. ~/.$CODENAME.conf
 fi
 
 #------------------------------------------------------------------------------
@@ -168,15 +164,15 @@ while [ $# -ne 0 ]; do
 			discimage_help
 			exit
 			;;
-		"-i")
+		"-i"|"--input")
 			INPUT="$2"
 			shift 2
 			;;
-		"-o")
+		"-o"|"--output")
 			OUTPUT="$2"
 			shift 2
 			;;
-		"-t")
+		"-t"|"--type")
 			TYPE="$2"
 			shift 2
 			;;
@@ -186,19 +182,17 @@ while [ $# -ne 0 ]; do
 			;;
 	esac
 done
+if [ "$OUTPUT" = "" ]; then
+	echo "error: An output basename must be provided."
+	exit 1
+fi
 
 #------------------------------------------------------------------------------
 # prepare environment
 
-discimage_check_dependencies
+discimage_check_dependencies cdrdao ddrescue md5sum toc2cue pure-sfv
 
 #------------------------------------------------------------------------------
 # begin execution
 
-case "$TYPE" in
-	"cdrom-mode1raw") discimage_cdrom_mode1raw "$INPUT" "$OUTPUT";;
-	"cdrom-mode1rawsub") discimage_cdrom_mode1rawsub "$INPUT" "$OUTPUT";;
-	"dvdrom") discimage_dvdrom "$INPUT" "$OUTPUT";;
-	"floppy") discimage_floppy "$INPUT" "$OUTPUT";;
-	*) echo "Unknown disc type: $TYPE";;
-esac
+discimage_main
